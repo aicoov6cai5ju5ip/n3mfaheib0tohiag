@@ -76,6 +76,11 @@
 		currentFile = file;
 		midiData = data;
 		
+		// Load MIDI data into the main core instance
+		if (core) {
+			core.loadMidiData(data);
+		}
+		
 		// Update JSON output
 		updateJsonOutput();
 		
@@ -330,8 +335,7 @@
 	}
 
 	.error-close {
-		@apply text-red-500 hover:text-red-700;
-		transition: color 200ms ease-in-out;
+		@apply text-red-500 hover:text-red-700 transition-colors duration-200;
 	}
 
 	.close-icon {
@@ -344,7 +348,7 @@
 	}
 
 	.section-title {
-		@apply text-xl font-bold text-surface-900 mb-4 flex items-center;
+		@apply text-xl font-bold text-gray-900 mb-4 flex items-center;
 	}
 
 	/* Configuration */
@@ -420,7 +424,7 @@
 	}
 
 	:global(.dark) .section-title {
-		@apply text-surface-100;
+		@apply text-gray-100;
 	}
 
 	:global(.dark) .note-feedback {

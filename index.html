@@ -592,8 +592,8 @@
       try {
         // Apply BPM
         const bpmInput = document.getElementById('bpmInput');
-        if (bmpInput && bmpInput.value) {
-          const bpm = parseInt(bmpInput.value);
+        if (bpmInput && bpmInput.value) {
+          const bpm = parseInt(bpmInput.value);
           if (bpm >= 20 && bpm <= 300) {
             pianoRoll.setBPM(bpm);
             console.log('Applied BPM:', bpm);

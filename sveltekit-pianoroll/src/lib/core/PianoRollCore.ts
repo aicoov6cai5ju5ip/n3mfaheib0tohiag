@@ -245,6 +245,26 @@ export class PianoRollCore implements TransportControls {
 	}
 
 	/**
+	 * Load parsed MIDI data into the core instance
+	 */
+	loadMidiData(midiData: MidiData): void {
+		// Flatten all notes for easy access
+		this.notes = midiData.tracks.flatMap(track => track.notes);
+		
+		// Update duration and reset transport state
+		this.duration = midiData.duration;
+		this.transportState.positionSeconds = 0;
+		this.transportState.position = '0:0:0';
+		this.currentPosition = 0;
+
+		// Recalculate frequencies with current tuning system
+		this.notes = this.notes.map(note => ({
+			...note,
+			frequency: this.getNoteFrequency(note.name)
+		}));
+	}
+
+	/**
 	 * Get frequency for a note name using current tuning system
 	 */
 	getNoteFrequency(noteName: string): number {
