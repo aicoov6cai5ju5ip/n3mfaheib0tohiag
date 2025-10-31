@@ -512,7 +512,10 @@
               const playing = e.detail;
               if (playing && currentMidi && pianoRoll) {
                   // !!! ВАЖНО: Запускаем Tone.js AudioContext после действия пользователя
-                  await window.Tone.start(); 
+                  await window.Tone.start();
+                  
+                  // Apply transport settings before playing
+                  applyTransportSettings();
                   pianoRoll.play();
               } else if (pianoRoll) {
                   pianoRoll.stop();
@@ -528,6 +531,8 @@
       .addEventListener("play", (e) => {
         const playing = e.detail;
         if (playing && currentMidi && pianoRoll) {
+          // Apply transport settings before playing
+          applyTransportSettings();
           pianoRoll.play();
         } else if (pianoRoll) {
           pianoRoll.stop();
@@ -580,6 +585,47 @@
       }
     });
 
+    // Function to apply all transport settings to PianoRoll
+    function applyTransportSettings() {
+      if (!pianoRoll) return;
+      
+      try {
+        // Apply BPM
+        const bpmInput = document.getElementById('bpmInput');
+        if (bpmInput && bmpInput.value) {
+          const bpm = parseInt(bmpInput.value);
+          if (bpm >= 20 && bpm <= 300) {
+            pianoRoll.setBPM(bpm);
+            console.log('Applied BPM:', bpm);
+          }
+        }
+        
+        // Apply loop settings
+        const loopEnabled = document.getElementById('loopEnabled');
+        if (loopEnabled && loopEnabled.checked) {
+          const loopStart = document.getElementById('loopStart')?.value || '0:0:0';
+          const loopEnd = document.getElementById('loopEnd')?.value || '4:0:0';
+          pianoRoll.setLoop(true, loopStart, loopEnd);
+          console.log('Applied loop:', loopStart, 'to', loopEnd);
+        } else if (loopEnabled) {
+          pianoRoll.setLoop(false);
+        }
+        
+        // Apply swing settings
+        const swingSlider = document.getElementById('swingSlider');
+        const swingSubdivision = document.getElementById('swingSubdivision');
+        if (swingSlider && swingSubdivision) {
+          const swingAmount = parseInt(swingSlider.value) / 100;
+          pianoRoll.setSwing(swingAmount, swingSubdivision.value);
+          console.log('Applied swing:', swingAmount, swingSubdivision.value);
+        }
+        
+        console.log('Transport settings applied successfully');
+      } catch (error) {
+        console.error('Error applying transport settings:', error);
+      }
+    }
+    
     // Transport controls initialization
     function updateTransportUI() {
       const transportStateSpan = document.getElementById('transportState');
@@ -656,9 +702,10 @@
         loopEnabled.addEventListener('change', () => {
           loopSettings.style.display = loopEnabled.checked ? 'block' : 'none';
           if (pianoRoll && pianoRoll.setLoop) {
-            const start = document.getElementById('loopStart').value;
-            const end = document.getElementById('loopEnd').value;
+            const start = document.getElementById('loopStart')?.value || '0:0:0';
+            const end = document.getElementById('loopEnd')?.value || '4:0:0';
             pianoRoll.setLoop(loopEnabled.checked, start, end);
+            console.log('Loop', loopEnabled.checked ? 'enabled' : 'disabled', 'from', start, 'to', end);
           }
         });
       }
@@ -671,8 +718,9 @@
           const swingAmount = parseInt(swingSlider.value) / 100;
           swingDisplay.textContent = swingSlider.value + '%';
           if (pianoRoll && pianoRoll.setSwing) {
-            const subdivision = document.getElementById('swingSubdivision').value;
+            const subdivision = document.getElementById('swingSubdivision')?.value || '16n';
             pianoRoll.setSwing(swingAmount, subdivision);
+            console.log('Swing set to:', swingAmount, 'subdivision:', subdivision);
           }
         });
       }
