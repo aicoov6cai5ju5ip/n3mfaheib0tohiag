@@ -735,3 +735,5 @@ export default PianoRollCore;
       this.positionUpdateInterval = null;
     }
   }
+
+// PianoRollCore доступен как глобальный класс

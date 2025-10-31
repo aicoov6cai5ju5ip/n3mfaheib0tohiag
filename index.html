@@ -376,15 +376,15 @@
     <tone-play-toggle disabled=""></tone-play-toggle>
   </tone-content>
 
-  <!-- 4. Загружаем ваш pianoroll-core.js как модуль -->
-  <script type="module" src="pianoroll-core.js"></script>
+  <!-- 4. Загружаем ваш pianoroll-core.js как обычный скрипт -->
+  <script src="pianoroll-core.js"></script>
 
   <!-- 5. Ваш основной скрипт, также как модуль -->
   <script type="module">
     // Используем глобальные объекты вместо импортов
     const { Midi } = window;
 
-    import PianoRollCore from './pianoroll-core.js'; // Ваш модуль
+    // PianoRollCore теперь доступен глобально
 
     if (
       !(
