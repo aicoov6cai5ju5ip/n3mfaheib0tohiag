@@ -58,3 +58,38 @@ export interface AppSettings {
 	useSynth: boolean;
 	useExternalSynth: boolean;
 }
+
+// Transport Control Types
+export interface TransportState {
+	bpm: number;
+	position: string; // Tone.js time format (bars:beats:sixteenths)
+	positionSeconds: number;
+	isPlaying: boolean;
+	isPaused: boolean;
+	isLooping: boolean;
+	loopStart: string;
+	loopEnd: string;
+	swing: number; // 0-1
+	swingSubdivision: string; // '8n', '16n', etc.
+}
+
+export interface TransportControls {
+	play(): void;
+	pause(): void;
+	stop(): void;
+	setBPM(bpm: number): void;
+	setPosition(position: string): void;
+	setLoop(enabled: boolean, start?: string, end?: string): void;
+	setSwing(amount: number, subdivision?: string): void;
+	getState(): TransportState;
+}
+
+export interface TransportEventCallback {
+	(event: TransportEvent): void;
+}
+
+export interface TransportEvent {
+	type: 'play' | 'pause' | 'stop' | 'position' | 'bpm' | 'loop';
+	data?: any;
+	timestamp: number;
+}

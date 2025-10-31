@@ -30,8 +30,35 @@ class PianoRollCore {
     
     this.notes = [];
     this.noteSubscribers = [];
+    this.transportSubscribers = [];
     this.isPlaying = false;
+    this.isPaused = false;
     this.scheduledEvents = [];
+    this.currentPosition = 0;
+    this.duration = 0;
+    
+    // Transport state
+    this.transportState = {
+      bpm: 120,
+      position: '0:0:0',
+      positionSeconds: 0,
+      isPlaying: false,
+      isPaused: false,
+      isLooping: false,
+      loopStart: '0:0:0',
+      loopEnd: '4:0:0',
+      swing: 0,
+      swingSubdivision: '8n'
+    };
+    
+    this.positionUpdateInterval = null;
+    
+    // Initialize Tone.js transport settings
+    if (Tone) {
+      Tone.Transport.bpm.value = this.transportState.bpm;
+      Tone.Transport.swing = this.transportState.swing;
+      Tone.Transport.swingSubdivision = this.transportState.swingSubdivision;
+    }
   }
   
   /**
@@ -173,6 +200,12 @@ class PianoRollCore {
     
     this.notes.sort((a, b) => a.time - b.time);
     
+    // Update duration and reset transport state
+    this.duration = midiJson.duration || 0;
+    this.transportState.positionSeconds = 0;
+    this.transportState.position = '0:0:0';
+    this.currentPosition = 0;
+    
     return this.notes;
   }
   
@@ -180,23 +213,41 @@ class PianoRollCore {
    * Запускает воспроизведение загруженных нот
    */
   play() {
-    if (this.isPlaying) return;
-    this.isPlaying = true;
+    if (this.isPlaying) {
+      return;
+    }
+    
+    if (this.isPaused) {
+      // Resume from pause
+      this._resumeFromPause();
+      return;
+    }
     
     if (!this.notes.length) {
       console.warn("No notes loaded to play.");
-      this.isPlaying = false;
       return;
     }
+    
+    this.isPlaying = true;
+    this.isPaused = false;
+    this.transportState.isPlaying = true;
+    this.transportState.isPaused = false;
+    
+    // Start position tracking
+    this._startPositionTracking();
     
     // Сбрасываем все предыдущие запланированные события
     this.scheduledEvents.forEach(id => Tone.Transport.clear(id));
     this.scheduledEvents = [];
 
     const now = Tone.now() + 0.1; // Небольшая задержка
+    const startTime = this.currentPosition;
     
-    this.notes.forEach(note => {
-      const scheduledTime = note.time + now;
+    // Schedule all notes from current position
+    const filteredNotes = this.notes.filter(note => note.time >= startTime);
+    
+    filteredNotes.forEach(note => {
+      const noteStartTime = now + (note.time - startTime);
 
       // Планируем событие noteOn
       const noteOnEventId = Tone.Transport.schedule((time) => {
@@ -213,11 +264,11 @@ class PianoRollCore {
             duration: note.duration,
             velocity: note.velocity
           });
-      }, scheduledTime);
+      }, noteStartTime);
       this.scheduledEvents.push(noteOnEventId);
       
       // Планируем событие noteOff
-      const noteOffTime = scheduledTime + note.duration;
+      const noteOffTime = noteStartTime + note.duration;
       const noteOffEventId = Tone.Transport.schedule((time) => {
           if (this.options.useSynth && this.synth) {
             this.synth.triggerRelease(note.frequency, time);
@@ -237,28 +288,74 @@ class PianoRollCore {
     if (Tone.Transport.state !== 'started') {
         Tone.Transport.start();
     }
+    
+    // Notify transport event
+    this._notifyTransportSubscribers({
+      type: 'play',
+      data: { position: startTime },
+      timestamp: Date.now()
+    });
+  }
+  
+  /**
+   * Resume from pause
+   */
+  _resumeFromPause() {
+    Tone.Transport.start();
+    
+    this.isPlaying = true;
+    this.isPaused = false;
+    this.transportState.isPlaying = true;
+    this.transportState.isPaused = false;
+    
+    // Resume position tracking
+    this._startPositionTracking();
+    
+    this._notifyTransportSubscribers({
+      type: 'play',
+      data: { position: this.currentPosition },
+      timestamp: Date.now()
+    });
   }
   
   /**
    * Останавливает воспроизведение и отменяет все запланированные события
    */
   stop() {
-    if (!this.isPlaying) return;
-    this.isPlaying = false;
+    Tone.Transport.stop();
+    Tone.Transport.cancel();
     
     this.scheduledEvents.forEach(id => {
       Tone.Transport.clear(id);
     });
     this.scheduledEvents = [];
     
+    this.isPlaying = false;
+    this.isPaused = false;
+    this.transportState.isPlaying = false;
+    this.transportState.isPaused = false;
+    
+    // Reset position to beginning
+    this.currentPosition = 0;
+    this.transportState.positionSeconds = 0;
+    this.transportState.position = '0:0:0';
+    
+    // Stop position tracking
+    this._stopPositionTracking();
+    
     if (this.options.useSynth && this.synth) {
       this.synth.releaseAll();
     }
     
+    this._notifyTransportSubscribers({
+      type: 'stop',
+      data: { position: 0 },
+      timestamp: Date.now()
+    });
+    
     this._notifySubscribers({ type: 'stop' });
     
-    // Можно также остановить транспорт, если больше нет активных событий
-    // Tone.Transport.stop(); // Осторожно: это остановит все другие запланированные события
+    return this;
   }
   
   /**
@@ -381,6 +478,9 @@ class PianoRollCore {
   dispose() {
     this.stop();
     
+    // Stop position tracking
+    this._stopPositionTracking();
+    
     if (this.synth) {
       this.synth.dispose();
       this.synth = null;
@@ -388,12 +488,250 @@ class PianoRollCore {
     
     this.notes = [];
     this.noteSubscribers = [];
-    
-    // Очищаем транспорт, если это последний компонент, использующий его
-    // Tone.Transport.clear(); // Осторожно: это может повлиять на другие части приложения
+    this.transportSubscribers = [];
     
     return this;
   }
 }
 
 export default PianoRollCore;
+
+  /**
+   * Pause playback
+   */
+  pause() {
+    if (!this.isPlaying || this.isPaused) {
+      return;
+    }
+    
+    Tone.Transport.pause();
+    
+    this.isPlaying = false;
+    this.isPaused = true;
+    this.transportState.isPlaying = false;
+    this.transportState.isPaused = true;
+    
+    // Stop position tracking
+    this._stopPositionTracking();
+    
+    this._notifyTransportSubscribers({
+      type: 'pause',
+      data: { position: this.currentPosition },
+      timestamp: Date.now()
+    });
+    
+    this._notifySubscribers({ type: 'stop' });
+    
+    return this;
+  }
+  
+  /**
+   * Set BPM (tempo)
+   */
+  setBPM(bpm) {
+    if (bpm < 20 || bpm > 300) {
+      console.warn('BPM must be between 20 and 300');
+      return this;
+    }
+    
+    this.transportState.bpm = bpm;
+    Tone.Transport.bpm.value = bpm;
+    
+    this._notifyTransportSubscribers({
+      type: 'bpm',
+      data: { bpm },
+      timestamp: Date.now()
+    });
+    
+    return this;
+  }
+  
+  /**
+   * Set playback position
+   */
+  setPosition(position) {
+    try {
+      // Convert position to seconds
+      const positionSeconds = Tone.Time(position).toSeconds();
+      
+      // Clamp to valid range
+      const clampedSeconds = Math.max(0, Math.min(positionSeconds, this.duration));
+      
+      this.currentPosition = clampedSeconds;
+      this.transportState.position = position;
+      this.transportState.positionSeconds = clampedSeconds;
+      
+      // If playing, need to reschedule from new position
+      if (this.isPlaying) {
+        this.stop();
+        this.play();
+      }
+      
+      this._notifyTransportSubscribers({
+        type: 'position',
+        data: { position, positionSeconds: clampedSeconds },
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      console.warn('Invalid position format:', position);
+    }
+    
+    return this;
+  }
+  
+  /**
+   * Set loop parameters
+   */
+  setLoop(enabled, start, end) {
+    this.transportState.isLooping = enabled;
+    
+    if (start !== undefined) {
+      this.transportState.loopStart = start;
+    }
+    if (end !== undefined) {
+      this.transportState.loopEnd = end;
+    }
+    
+    if (enabled) {
+      Tone.Transport.loopStart = this.transportState.loopStart;
+      Tone.Transport.loopEnd = this.transportState.loopEnd;
+      Tone.Transport.loop = true;
+    } else {
+      Tone.Transport.loop = false;
+    }
+    
+    this._notifyTransportSubscribers({
+      type: 'loop',
+      data: {
+        enabled,
+        start: this.transportState.loopStart,
+        end: this.transportState.loopEnd
+      },
+      timestamp: Date.now()
+    });
+    
+    return this;
+  }
+  
+  /**
+   * Set swing parameters
+   */
+  setSwing(amount, subdivision = '8n') {
+    this.transportState.swing = Math.max(0, Math.min(1, amount));
+    this.transportState.swingSubdivision = subdivision;
+    
+    Tone.Transport.swing = this.transportState.swing;
+    Tone.Transport.swingSubdivision = subdivision;
+    
+    this._notifyTransportSubscribers({
+      type: 'bpm', // Swing affects timing like BPM
+      data: { swing: this.transportState.swing, subdivision },
+      timestamp: Date.now()
+    });
+    
+    return this;
+  }
+  
+  /**
+   * Get current transport state
+   */
+  getState() {
+    return { ...this.transportState };
+  }
+  
+  /**
+   * Subscribe to transport events
+   */
+  subscribeToTransport(callback) {
+    if (typeof callback === 'function' && !this.transportSubscribers.includes(callback)) {
+      this.transportSubscribers.push(callback);
+    }
+    
+    // Return unsubscribe function
+    return () => {
+      this.transportSubscribers = this.transportSubscribers.filter(cb => cb !== callback);
+    };
+  }
+  
+  /**
+   * Private method to notify transport subscribers
+   */
+  _notifyTransportSubscribers(event) {
+    this.transportSubscribers.forEach(callback => {
+      try {
+        callback(event);
+      } catch (error) {
+        console.error('Error in transport subscriber:', error);
+      }
+    });
+  }
+  
+  /**
+   * Start position tracking during playback
+   */
+  _startPositionTracking() {
+    if (this.positionUpdateInterval) {
+      clearInterval(this.positionUpdateInterval);
+    }
+    
+    const startTime = Date.now();
+    const startPosition = this.currentPosition;
+    
+    this.positionUpdateInterval = setInterval(() => {
+      if (!this.isPlaying || this.isPaused) {
+        return;
+      }
+      
+      const elapsed = (Date.now() - startTime) / 1000;
+      this.currentPosition = startPosition + elapsed;
+      this.transportState.positionSeconds = this.currentPosition;
+      
+      // Convert to bars:beats:sixteenths format
+      try {
+        const bpm = this.transportState.bpm;
+        const beatsPerSecond = bpm / 60;
+        const totalBeats = this.currentPosition * beatsPerSecond;
+        const bars = Math.floor(totalBeats / 4);
+        const beats = Math.floor(totalBeats % 4);
+        const sixteenths = Math.floor((totalBeats % 1) * 4);
+        
+        this.transportState.position = `${bars}:${beats}:${sixteenths}`;
+      } catch (error) {
+        // Fallback to simple time format
+        this.transportState.position = `${Math.floor(this.currentPosition)}s`;
+      }
+      
+      // Check if we've reached the end
+      if (this.currentPosition >= this.duration) {
+        if (this.transportState.isLooping) {
+          // Loop back to start (or loop start point)
+          this.currentPosition = 0; // Simplified - could use loopStart
+          this.transportState.positionSeconds = 0;
+          this.transportState.position = '0:0:0';
+        } else {
+          // Stop at end
+          this.stop();
+        }
+      }
+      
+      // Notify position update
+      this._notifyTransportSubscribers({
+        type: 'position',
+        data: {
+          position: this.transportState.position,
+          positionSeconds: this.transportState.positionSeconds
+        },
+        timestamp: Date.now()
+      });
+    }, 100); // Update every 100ms
+  }
+  
+  /**
+   * Stop position tracking
+   */
+  _stopPositionTracking() {
+    if (this.positionUpdateInterval) {
+      clearInterval(this.positionUpdateInterval);
+      this.positionUpdateInterval = null;
+    }
+  }

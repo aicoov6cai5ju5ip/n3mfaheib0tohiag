@@ -6,7 +6,11 @@ import type {
 	PianoRollOptions,
 	NoteEvent,
 	NoteEventCallback,
-	TuningTables
+	TuningTables,
+	TransportState,
+	TransportControls,
+	TransportEvent,
+	TransportEventCallback
 } from '../types/index.js';
 
 // Global references to libraries loaded via script tags
@@ -20,16 +24,36 @@ declare global {
 
 /**
  * Core class for MIDI file processing with custom tuning systems
- * Handles parsing, tuning calculations, and audio synthesis
+ * Handles parsing, tuning calculations, audio synthesis, and transport control
  */
-export class PianoRollCore {
+export class PianoRollCore implements TransportControls {
 	public options: Required<PianoRollOptions>;
 	public tuningTables: TuningTables;
 	public synth: any | null = null;
 	public notes: Note[] = [];
 	public noteSubscribers: NoteEventCallback[] = [];
+	public transportSubscribers: TransportEventCallback[] = [];
 	public isPlaying: boolean = false;
+	public isPaused: boolean = false;
 	public scheduledEvents: any[] = [];
+	public currentPosition: number = 0;
+	public duration: number = 0;
+	
+	// Transport state
+	private transportState: TransportState = {
+		bpm: 120,
+		position: '0:0:0',
+		positionSeconds: 0,
+		isPlaying: false,
+		isPaused: false,
+		isLooping: false,
+		loopStart: '0:0:0',
+		loopEnd: '4:0:0',
+		swing: 0,
+		swingSubdivision: '8n'
+	};
+	
+	private positionUpdateInterval: number | null = null;
 
 	constructor(options: PianoRollOptions = {}) {
 		this.options = {
@@ -50,6 +74,13 @@ export class PianoRollCore {
 
 		if (this.options.useSynth) {
 			this._initSynth();
+		}
+		
+		// Initialize Tone.js transport settings if available
+		if (typeof window !== 'undefined' && window.Tone) {
+			window.Tone.Transport.bpm.value = this.transportState.bpm;
+			window.Tone.Transport.swing = this.transportState.swing;
+			window.Tone.Transport.swingSubdivision = this.transportState.swingSubdivision;
 		}
 	}
 
@@ -203,6 +234,12 @@ export class PianoRollCore {
 
 		// Flatten all notes for easy access
 		this.notes = midiData.tracks.flatMap(track => track.notes);
+		
+		// Update duration and reset transport state
+		this.duration = midi.duration;
+		this.transportState.positionSeconds = 0;
+		this.transportState.position = '0:0:0';
+		this.currentPosition = 0;
 
 		return midiData;
 	}
@@ -272,7 +309,7 @@ export class PianoRollCore {
 	}
 
 	/**
-	 * Play all notes with timing
+	 * Transport Control Methods
 	 */
 	play(): void {
 		if (typeof window === 'undefined' || !window.Tone) {
@@ -283,7 +320,13 @@ export class PianoRollCore {
 		const Tone = window.Tone;
 		
 		if (this.isPlaying) {
-			this.stop();
+			return;
+		}
+		
+		if (this.isPaused) {
+			// Resume from pause
+			this._resumeFromPause();
+			return;
 		}
 
 		if (!this.options.useSynth || !this.synth) {
@@ -292,11 +335,21 @@ export class PianoRollCore {
 		}
 
 		this.isPlaying = true;
+		this.isPaused = false;
+		this.transportState.isPlaying = true;
+		this.transportState.isPaused = false;
+		
+		// Start position tracking
+		this._startPositionTracking();
+		
 		const now = Tone.now();
+		const startTime = this.currentPosition;
 
-		// Schedule all notes
-		this.notes.forEach(note => {
-			const startTime = now + note.time;
+		// Schedule all notes from current position
+		const filteredNotes = this.notes.filter(note => note.time >= startTime);
+		
+		filteredNotes.forEach(note => {
+			const noteStartTime = now + (note.time - startTime);
 			const frequency = note.frequency;
 
 			// Schedule note on
@@ -312,7 +365,7 @@ export class PianoRollCore {
 						velocity: note.velocity
 					});
 				}
-			}, startTime);
+			}, noteStartTime);
 
 			// Schedule note off
 			const noteOffEvent = Tone.Transport.schedule((time: number) => {
@@ -325,13 +378,20 @@ export class PianoRollCore {
 						time
 					});
 				}
-			}, startTime + note.duration);
+			}, noteStartTime + note.duration);
 
 			this.scheduledEvents.push(noteOnEvent, noteOffEvent);
 		});
 
 		// Start transport
 		Tone.Transport.start();
+		
+		// Notify transport event
+		this._notifyTransportSubscribers({
+			type: 'play',
+			data: { position: startTime },
+			timestamp: Date.now()
+		});
 	}
 
 	/**
@@ -352,6 +412,23 @@ export class PianoRollCore {
 		this.scheduledEvents = [];
 
 		this.isPlaying = false;
+		this.isPaused = false;
+		this.transportState.isPlaying = false;
+		this.transportState.isPaused = false;
+		
+		// Reset position to beginning
+		this.currentPosition = 0;
+		this.transportState.positionSeconds = 0;
+		this.transportState.position = '0:0:0';
+		
+		// Stop position tracking
+		this._stopPositionTracking();
+		
+		this._notifyTransportSubscribers({
+			type: 'stop',
+			data: { position: 0 },
+			timestamp: Date.now()
+		});
 		
 		this._notifySubscribers({
 			type: 'stop',
@@ -404,6 +481,9 @@ export class PianoRollCore {
 	dispose(): void {
 		this.stop();
 		
+		// Stop position tracking
+		this._stopPositionTracking();
+		
 		if (this.synth?.dispose) {
 			this.synth.dispose();
 			this.synth = null;
@@ -411,8 +491,278 @@ export class PianoRollCore {
 		
 		this.notes = [];
 		this.noteSubscribers = [];
+		this.transportSubscribers = [];
 	}
 }
 
 // Export for use in Svelte components
 export default PianoRollCore;
+
+	/**
+	 * Pause playback
+	 */
+	pause(): void {
+		if (!this.isPlaying || this.isPaused) {
+			return;
+		}
+		
+		if (typeof window !== 'undefined' && window.Tone) {
+			window.Tone.Transport.pause();
+		}
+		
+		this.isPlaying = false;
+		this.isPaused = true;
+		this.transportState.isPlaying = false;
+		this.transportState.isPaused = true;
+		
+		// Stop position tracking
+		this._stopPositionTracking();
+		
+		this._notifyTransportSubscribers({
+			type: 'pause',
+			data: { position: this.currentPosition },
+			timestamp: Date.now()
+		});
+		
+		this._notifySubscribers({
+			type: 'stop',
+			time: Date.now()
+		});
+	}
+	
+	/**
+	 * Resume from pause
+	 */
+	private _resumeFromPause(): void {
+		if (typeof window !== 'undefined' && window.Tone) {
+			window.Tone.Transport.start();
+		}
+		
+		this.isPlaying = true;
+		this.isPaused = false;
+		this.transportState.isPlaying = true;
+		this.transportState.isPaused = false;
+		
+		// Resume position tracking
+		this._startPositionTracking();
+		
+		this._notifyTransportSubscribers({
+			type: 'play',
+			data: { position: this.currentPosition },
+			timestamp: Date.now()
+		});
+	}
+	/**
+	 * Set BPM (tempo)
+	 */
+	setBPM(bpm: number): void {
+		if (bpm < 20 || bpm > 300) {
+			console.warn('BPM must be between 20 and 300');
+			return;
+		}
+		
+		this.transportState.bpm = bpm;
+		
+		if (typeof window !== 'undefined' && window.Tone) {
+			window.Tone.Transport.bpm.value = bpm;
+		}
+		
+		this._notifyTransportSubscribers({
+			type: 'bpm',
+			data: { bpm },
+			timestamp: Date.now()
+		});
+	}
+	
+	/**
+	 * Set playback position
+	 */
+	setPosition(position: string): void {
+		if (typeof window !== 'undefined' && window.Tone) {
+			try {
+				// Convert position to seconds
+				const positionSeconds = window.Tone.Time(position).toSeconds();
+				
+				// Clamp to valid range
+				const clampedSeconds = Math.max(0, Math.min(positionSeconds, this.duration));
+				
+				this.currentPosition = clampedSeconds;
+				this.transportState.position = position;
+				this.transportState.positionSeconds = clampedSeconds;
+				
+				// If playing, need to reschedule from new position
+				if (this.isPlaying) {
+					this.stop();
+					this.play();
+				}
+				
+				this._notifyTransportSubscribers({
+					type: 'position',
+					data: { position, positionSeconds: clampedSeconds },
+					timestamp: Date.now()
+				});
+			} catch (error) {
+				console.warn('Invalid position format:', position);
+			}
+		}
+	}
+	
+	/**
+	 * Set loop parameters
+	 */
+	setLoop(enabled: boolean, start?: string, end?: string): void {
+		this.transportState.isLooping = enabled;
+		
+		if (start !== undefined) {
+			this.transportState.loopStart = start;
+		}
+		if (end !== undefined) {
+			this.transportState.loopEnd = end;
+		}
+		
+		if (typeof window !== 'undefined' && window.Tone) {
+			if (enabled) {
+				window.Tone.Transport.loopStart = this.transportState.loopStart;
+				window.Tone.Transport.loopEnd = this.transportState.loopEnd;
+				window.Tone.Transport.loop = true;
+			} else {
+				window.Tone.Transport.loop = false;
+			}
+		}
+		
+		this._notifyTransportSubscribers({
+			type: 'loop',
+			data: {
+				enabled,
+				start: this.transportState.loopStart,
+				end: this.transportState.loopEnd
+			},
+			timestamp: Date.now()
+		});
+	}
+	
+	/**
+	 * Set swing parameters
+	 */
+	setSwing(amount: number, subdivision: string = '8n'): void {
+		this.transportState.swing = Math.max(0, Math.min(1, amount));
+		this.transportState.swingSubdivision = subdivision;
+		
+		if (typeof window !== 'undefined' && window.Tone) {
+			window.Tone.Transport.swing = this.transportState.swing;
+			window.Tone.Transport.swingSubdivision = subdivision;
+		}
+		
+		this._notifyTransportSubscribers({
+			type: 'bpm', // Swing affects timing like BPM
+			data: { swing: this.transportState.swing, subdivision },
+			timestamp: Date.now()
+		});
+	}
+	
+	/**
+	 * Get current transport state
+	 */
+	getState(): TransportState {
+		return { ...this.transportState };
+	}
+	/**
+	 * Subscribe to transport events
+	 */
+	subscribeToTransport(callback: TransportEventCallback): () => void {
+		this.transportSubscribers.push(callback);
+		
+		// Return unsubscribe function
+		return () => {
+			const index = this.transportSubscribers.indexOf(callback);
+			if (index > -1) {
+				this.transportSubscribers.splice(index, 1);
+			}
+		};
+	}
+	
+	/**
+	 * Private method to notify transport subscribers
+	 */
+	private _notifyTransportSubscribers(event: TransportEvent): void {
+		this.transportSubscribers.forEach(callback => {
+			try {
+				callback(event);
+			} catch (error) {
+				console.error('Error in transport subscriber:', error);
+			}
+		});
+	}
+	
+	/**
+	 * Start position tracking during playback
+	 */
+	private _startPositionTracking(): void {
+		if (this.positionUpdateInterval) {
+			clearInterval(this.positionUpdateInterval);
+		}
+		
+		const startTime = Date.now();
+		const startPosition = this.currentPosition;
+		
+		this.positionUpdateInterval = setInterval(() => {
+			if (!this.isPlaying || this.isPaused) {
+				return;
+			}
+			
+			const elapsed = (Date.now() - startTime) / 1000;
+			this.currentPosition = startPosition + elapsed;
+			this.transportState.positionSeconds = this.currentPosition;
+			
+			// Convert to bars:beats:sixteenths format
+			if (typeof window !== 'undefined' && window.Tone) {
+				try {
+					const transport = window.Tone.Transport;
+					const bpm = this.transportState.bpm;
+					const beatsPerSecond = bpm / 60;
+					const totalBeats = this.currentPosition * beatsPerSecond;
+					const bars = Math.floor(totalBeats / 4);
+					const beats = Math.floor(totalBeats % 4);
+					const sixteenths = Math.floor((totalBeats % 1) * 4);
+					
+					this.transportState.position = `${bars}:${beats}:${sixteenths}`;
+				} catch (error) {
+					// Fallback to simple time format
+					this.transportState.position = `${Math.floor(this.currentPosition)}s`;
+				}
+			}
+			
+			// Check if we've reached the end
+			if (this.currentPosition >= this.duration) {
+				if (this.transportState.isLooping) {
+					// Loop back to start (or loop start point)
+					this.currentPosition = 0; // Simplified - could use loopStart
+					this.transportState.positionSeconds = 0;
+					this.transportState.position = '0:0:0';
+				} else {
+					// Stop at end
+					this.stop();
+				}
+			}
+			
+			// Notify position update
+			this._notifyTransportSubscribers({
+				type: 'position',
+				data: {
+					position: this.transportState.position,
+					positionSeconds: this.transportState.positionSeconds
+				},
+				timestamp: Date.now()
+			});
+		}, 100); // Update every 100ms
+	}
+	
+	/**
+	 * Stop position tracking
+	 */
+	private _stopPositionTracking(): void {
+		if (this.positionUpdateInterval) {
+			clearInterval(this.positionUpdateInterval);
+			this.positionUpdateInterval = null;
+		}
+	}

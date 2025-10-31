@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { PianoRollCore } from '../lib/core/PianoRollCore.js';
-	import type { MidiData, TuningSystem, SynthType, NoteEvent } from '../lib/types/index.js';
+	import type { MidiData, TuningSystem, SynthType, NoteEvent, TransportEvent } from '../lib/types/index.js';
 	
 	// Components
 	import MidiUpload from '../lib/components/MidiUpload.svelte';
 	import TuningSelector from '../lib/components/TuningSelector.svelte';
 	import SynthControls from '../lib/components/SynthControls.svelte';
-	import PlaybackControls from '../lib/components/PlaybackControls.svelte';
+	import TransportControls from '../lib/components/TransportControls.svelte';
 	import JsonDisplay from '../lib/components/JsonDisplay.svelte';
 
 	// Application state
@@ -24,6 +24,9 @@
 	// Event tracking for visual feedback
 	let currentNotes: string[] = [];
 	let playingEvents: NoteEvent[] = [];
+	
+	// Transport control state
+	let transportUnsubscribe: (() => void) | null = null;
 
 	onMount(() => {
 		// Initialize PianoRollCore
@@ -46,9 +49,22 @@
 				isPlaying = false;
 			}
 		});
+		
+		// Subscribe to transport events
+		transportUnsubscribe = core.subscribeToTransport((event: TransportEvent) => {
+			if (event.type === 'play') {
+				isPlaying = true;
+			} else if (event.type === 'pause' || event.type === 'stop') {
+				isPlaying = false;
+				if (event.type === 'stop') {
+					currentNotes = [];
+				}
+			}
+		});
 
 		return () => {
 			unsubscribe();
+			transportUnsubscribe?.();
 			core?.dispose();
 		};
 	});
@@ -97,6 +113,7 @@
 		}
 	}
 
+	// Transport control handlers
 	async function handlePlay() {
 		if (!core || !midiData) return;
 		
@@ -106,21 +123,43 @@
 				await window.Tone.start();
 			}
 			
-			isPlaying = true;
 			core.play();
 		} catch (error) {
 			console.error('Error playing MIDI:', error);
 			errorMessage = `Playback error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-			isPlaying = false;
 		}
+	}
+
+	function handlePause() {
+		if (!core) return;
+		core.pause();
 	}
 
 	function handleStop() {
 		if (!core) return;
-		
 		core.stop();
-		isPlaying = false;
-		currentNotes = [];
+	}
+	
+	function handleBPMChange(event: CustomEvent<{ bpm: number }>) {
+		if (!core) return;
+		core.setBPM(event.detail.bpm);
+	}
+	
+	function handlePositionChange(event: CustomEvent<{ position: string }>) {
+		if (!core) return;
+		core.setPosition(event.detail.position);
+	}
+	
+	function handleLoopChange(event: CustomEvent<{ enabled: boolean; start?: string; end?: string }>) {
+		if (!core) return;
+		const { enabled, start, end } = event.detail;
+		core.setLoop(enabled, start, end);
+	}
+	
+	function handleSwingChange(event: CustomEvent<{ amount: number; subdivision: string }>) {
+		if (!core) return;
+		const { amount, subdivision } = event.detail;
+		core.setSwing(amount, subdivision);
 	}
 
 	function updateJsonOutput() {
@@ -200,14 +239,17 @@
 		<!-- Playback Section -->
 		<section class="playback-section">
 			<h2 class="section-title">3. Playback & Control</h2>
-			<PlaybackControls
-				bind:isPlaying
+			<TransportControls
 				{hasNotes}
-				{noteCount}
 				{duration}
-				disabled={!canPlay && !isPlaying}
+				disabled={!useSynth}
 				on:play={handlePlay}
+				on:pause={handlePause}
 				on:stop={handleStop}
+				on:bpmChange={handleBPMChange}
+				on:positionChange={handlePositionChange}
+				on:loopChange={handleLoopChange}
+				on:swingChange={handleSwingChange}
 			/>
 			
 			<!-- Real-time feedback -->
@@ -288,7 +330,8 @@
 	}
 
 	.error-close {
-		@apply text-red-500 hover:text-red-700 transition-colors duration-200;
+		@apply text-red-500 hover:text-red-700;
+		transition: color 200ms ease-in-out;
 	}
 
 	.close-icon {

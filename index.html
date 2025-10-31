@@ -120,6 +120,150 @@
       cursor: pointer;
       margin-top: 5px; /* Adjust for alignment */
     }
+    
+    /* Transport Controls Styles */
+    .transport-panel {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border: 1px solid #444;
+    }
+    
+    .transport-panel h3 {
+      margin-top: 0;
+      color: #4a90e2;
+      border-bottom: 1px solid #444;
+      padding-bottom: 8px;
+    }
+    
+    .transport-buttons {
+      margin-bottom: 15px;
+    }
+    
+    .transport-buttons button {
+      margin-right: 8px;
+      padding: 8px 16px;
+      font-size: 14px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    #playBtn {
+      background-color: #28a745;
+      color: white;
+    }
+    
+    #playBtn:hover:not(:disabled) {
+      background-color: #218838;
+    }
+    
+    #pauseBtn {
+      background-color: #ffc107;
+      color: black;
+    }
+    
+    #pauseBtn:hover:not(:disabled) {
+      background-color: #e0a800;
+    }
+    
+    #stopBtn {
+      background-color: #dc3545;
+      color: white;
+    }
+    
+    #stopBtn:hover:not(:disabled) {
+      background-color: #c82333;
+    }
+    
+    .transport-buttons button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    #bpmInput {
+      width: 60px;
+      text-align: center;
+      margin: 0 5px;
+      background-color: #3a3a3a;
+      border: 1px solid #555;
+      color: #eee;
+      padding: 4px;
+      border-radius: 4px;
+    }
+    
+    #bpmDown, #bpmUp {
+      padding: 4px 8px;
+      background: #555;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    
+    #bpmDown:hover, #bpmUp:hover {
+      background: #666;
+    }
+    
+    #positionDisplay, #barsDisplay {
+      font-family: monospace;
+      background: #1a1a1a;
+      padding: 4px 8px;
+      border-radius: 3px;
+      margin: 0 5px;
+    }
+    
+    #positionSlider {
+      width: 100%;
+      margin: 5px 0;
+    }
+    
+    #advancedToggle {
+      padding: 5px 10px;
+      background: #555;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      margin-bottom: 10px;
+    }
+    
+    #advancedToggle:hover {
+      background: #666;
+    }
+    
+    #advancedPanel {
+      border-top: 1px solid #555;
+      padding-top: 15px;
+    }
+    
+    #swingSlider {
+      width: 200px;
+      margin-right: 10px;
+    }
+    
+    .transport-info {
+      font-size: 12px;
+      color: #ccc;
+      border-top: 1px solid #444;
+      padding-top: 10px;
+    }
+    
+    #loopSettings label {
+      margin-right: 15px;
+    }
+    
+    #loopSettings input {
+      width: 60px;
+      padding: 2px;
+      margin-left: 5px;
+      background-color: #3a3a3a;
+      border: 1px solid #555;
+      color: #eee;
+      border-radius: 3px;
+    }
   </style>
 </head><body>
   <tone-top-bar></tone-top-bar>
@@ -164,6 +308,72 @@
         <option value="am">AM Synth</option>
         <option value="membrane">Membrane Synth</option>
       </select>
+      </div>
+      
+      <!-- Enhanced Transport Controls -->
+      <div id="TransportControls" class="transport-panel">
+        <h3>Transport Controls</h3>
+        
+        <!-- Main transport buttons -->
+        <div class="transport-buttons">
+          <button id="playBtn" disabled>▶ Play</button>
+          <button id="pauseBtn" disabled>⏸ Pause</button>
+          <button id="stopBtn" disabled>⏹ Stop</button>
+        </div>
+        
+        <!-- BPM Control -->
+        <div class="control-group">
+          <label>BPM: </label>
+          <button id="bpmDown">-</button>
+          <input type="number" id="bpmInput" value="120" min="20" max="300">
+          <button id="bpmUp">+</button>
+          <span id="bpmDisplay">120 BPM</span>
+        </div>
+        
+        <!-- Position Display -->
+        <div class="control-group">
+          <label>Position: </label>
+          <span id="positionDisplay">0:00.00</span>
+          <span> | </span>
+          <span id="barsDisplay">0:0:0</span>
+        </div>
+        
+        <!-- Position Scrubber -->
+        <div class="control-group">
+          <input type="range" id="positionSlider" min="0" max="100" value="0" disabled>
+        </div>
+        
+        <!-- Advanced Controls Toggle -->
+        <button id="advancedToggle">▼ Advanced</button>
+        
+        <!-- Advanced Controls Panel -->
+        <div id="advancedPanel" style="display:none;">
+          <!-- Loop Controls -->
+          <div class="control-group">
+            <label><input type="checkbox" id="loopEnabled"> Enable Loop</label>
+            <div id="loopSettings" style="display:none; margin-left:20px;">
+              <label>Start: <input type="text" id="loopStart" value="0:0:0"></label>
+              <label>End: <input type="text" id="loopEnd" value="4:0:0"></label>
+            </div>
+          </div>
+          
+          <!-- Swing Controls -->
+          <div class="control-group">
+            <label>Swing: <span id="swingDisplay">0%</span></label>
+            <input type="range" id="swingSlider" min="0" max="100" value="0">
+            <select id="swingSubdivision">
+              <option value="8n">8th notes</option>
+              <option value="16n" selected>16th notes</option>
+              <option value="32n">32nd notes</option>
+            </select>
+          </div>
+          
+          <!-- Transport Info -->
+          <div class="transport-info">
+            <div>State: <span id="transportState">Stopped</span></div>
+            <div>Duration: <span id="durationDisplay">-</span></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -238,6 +448,40 @@
             useSynth: document.querySelector('#useInternalSynth').checked,
             synthType: document.querySelector('#synthType').value
           });
+          
+          // Subscribe to transport events if the method exists
+          if (pianoRoll.subscribeToTransport) {
+            pianoRoll.subscribeToTransport((event) => {
+              if (event.type === 'play') {
+                transportState.isPlaying = true;
+                transportState.isPaused = false;
+              } else if (event.type === 'pause') {
+                transportState.isPlaying = false;
+                transportState.isPaused = true;
+              } else if (event.type === 'stop') {
+                transportState.isPlaying = false;
+                transportState.isPaused = false;
+                transportState.position = 0;
+              } else if (event.type === 'position' && event.data) {
+                transportState.position = event.data.positionSeconds || 0;
+                // Update position display
+                const posDisplay = document.getElementById('positionDisplay');
+                const barsDisplay = document.getElementById('barsDisplay');
+                if (posDisplay && event.data.positionSeconds !== undefined) {
+                  const seconds = event.data.positionSeconds;
+                  const mins = Math.floor(seconds / 60);
+                  const secs = Math.floor(seconds % 60);
+                  const ms = Math.floor((seconds % 1) * 100);
+                  posDisplay.textContent = `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+                }
+                if (barsDisplay && event.data.position) {
+                  barsDisplay.textContent = event.data.position;
+                }
+              }
+              updateTransportUI();
+            });
+          }
+          
            // Подписываем внешний синтезатор, если чекбокс активен при загрузке MIDI
           if (document.querySelector('#useExternalSynth').checked) {
             pianoRoll.subscribe(externalSynthCallback);
@@ -253,7 +497,25 @@
         ).value = JSON.stringify(pianoRoll.getNotes(), undefined, 2);
         document
           .querySelector("tone-play-toggle")
-          .removeAttribute("disabled")
+          .removeAttribute("disabled");
+          
+        // Enable transport controls
+        document.getElementById('playBtn').disabled = false;
+        document.getElementById('positionSlider').disabled = false;
+        
+        // Update duration display
+        transportState.duration = midi.duration;
+        document.getElementById('durationDisplay').textContent = 
+          Math.floor(midi.duration / 60) + ':' + 
+          Math.floor(midi.duration % 60).toString().padStart(2, '0');
+        
+        // Set position slider max
+        document.getElementById('positionSlider').max = Math.floor(midi.duration);
+        
+        // Update UI
+        updateTransportUI();
+        
+        document
           .addEventListener("play", async (e) => { // Добавляем async здесь
               const playing = e.detail;
               if (playing && currentMidi && pianoRoll) {
