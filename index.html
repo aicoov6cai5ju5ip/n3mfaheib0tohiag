@@ -314,13 +314,6 @@
       <div id="TransportControls" class="transport-panel">
         <h3>Transport Controls</h3>
         
-        <!-- Main transport buttons -->
-        <div class="transport-buttons">
-          <button id="playBtn" disabled>▶ Play</button>
-          <button id="pauseBtn" disabled>⏸ Pause</button>
-          <button id="stopBtn" disabled>⏹ Stop</button>
-        </div>
-        
         <!-- BPM Control -->
         <div class="control-group">
           <label>BPM: </label>
@@ -500,7 +493,6 @@
           .removeAttribute("disabled");
           
         // Enable transport controls
-        document.getElementById('playBtn').disabled = false;
         document.getElementById('positionSlider').disabled = false;
         
         // Update duration display
@@ -588,6 +580,104 @@
       }
     });
 
+    // Transport controls initialization
+    function updateTransportUI() {
+      const transportStateSpan = document.getElementById('transportState');
+      if (transportStateSpan) {
+        if (transportState.isPlaying) {
+          transportStateSpan.textContent = 'Playing';
+        } else if (transportState.isPaused) {
+          transportStateSpan.textContent = 'Paused';
+        } else {
+          transportStateSpan.textContent = 'Stopped';
+        }
+      }
+    }
+    
+    // Initialize transport controls
+    document.addEventListener('DOMContentLoaded', function() {
+      // BPM controls
+      const bpmInput = document.getElementById('bpmInput');
+      const bpmDown = document.getElementById('bpmDown');
+      const bpmUp = document.getElementById('bpmUp');
+      const bpmDisplay = document.getElementById('bpmDisplay');
+      
+      if (bpmDown) {
+        bpmDown.addEventListener('click', () => {
+          let bpm = parseInt(bpmInput.value) || 120;
+          bpm = Math.max(20, bpm - 1);
+          bpmInput.value = bpm;
+          bpmDisplay.textContent = bpm + ' BPM';
+          if (pianoRoll && pianoRoll.setBPM) {
+            pianoRoll.setBPM(bpm);
+          }
+        });
+      }
+      
+      if (bpmUp) {
+        bpmUp.addEventListener('click', () => {
+          let bpm = parseInt(bpmInput.value) || 120;
+          bpm = Math.min(300, bpm + 1);
+          bpmInput.value = bpm;
+          bpmDisplay.textContent = bpm + ' BPM';
+          if (pianoRoll && pianoRoll.setBPM) {
+            pianoRoll.setBPM(bpm);
+          }
+        });
+      }
+      
+      if (bpmInput) {
+        bpmInput.addEventListener('input', () => {
+          const bpm = parseInt(bpmInput.value);
+          if (bpm >= 20 && bpm <= 300) {
+            bpmDisplay.textContent = bpm + ' BPM';
+            if (pianoRoll && pianoRoll.setBPM) {
+              pianoRoll.setBPM(bpm);
+            }
+          }
+        });
+      }
+      
+      // Advanced panel toggle
+      const advancedToggle = document.getElementById('advancedToggle');
+      const advancedPanel = document.getElementById('advancedPanel');
+      if (advancedToggle && advancedPanel) {
+        advancedToggle.addEventListener('click', () => {
+          const isVisible = advancedPanel.style.display !== 'none';
+          advancedPanel.style.display = isVisible ? 'none' : 'block';
+          advancedToggle.textContent = isVisible ? '▼ Advanced' : '▲ Advanced';
+        });
+      }
+      
+      // Loop controls
+      const loopEnabled = document.getElementById('loopEnabled');
+      const loopSettings = document.getElementById('loopSettings');
+      if (loopEnabled && loopSettings) {
+        loopEnabled.addEventListener('change', () => {
+          loopSettings.style.display = loopEnabled.checked ? 'block' : 'none';
+          if (pianoRoll && pianoRoll.setLoop) {
+            const start = document.getElementById('loopStart').value;
+            const end = document.getElementById('loopEnd').value;
+            pianoRoll.setLoop(loopEnabled.checked, start, end);
+          }
+        });
+      }
+      
+      // Swing controls
+      const swingSlider = document.getElementById('swingSlider');
+      const swingDisplay = document.getElementById('swingDisplay');
+      if (swingSlider && swingDisplay) {
+        swingSlider.addEventListener('input', () => {
+          const swingAmount = parseInt(swingSlider.value) / 100;
+          swingDisplay.textContent = swingSlider.value + '%';
+          if (pianoRoll && pianoRoll.setSwing) {
+            const subdivision = document.getElementById('swingSubdivision').value;
+            pianoRoll.setSwing(swingAmount, subdivision);
+          }
+        });
+      }
+    });
+    
     // Инициализация Tone.Transport (если еще не сделано)
     // Tone.js обычно инициализирует его сам, но убедимся, что он запущен
     // Tone.Transport.start() будет вызван при запуске воспроизведения
