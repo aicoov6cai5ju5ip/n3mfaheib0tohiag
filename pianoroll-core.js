@@ -298,6 +298,33 @@ class PianoRollCore {
   }
   
   /**
+   * Пауза воспроизведения
+   */
+  pause() {
+    if (!this.isPlaying) {
+      return this;
+    }
+    
+    Tone.Transport.pause();
+    
+    this.isPlaying = false;
+    this.isPaused = true;
+    this.transportState.isPlaying = false;
+    this.transportState.isPaused = true;
+    
+    // Stop position tracking
+    this._stopPositionTracking();
+    
+    this._notifyTransportSubscribers({
+      type: 'pause',
+      data: { position: this.currentPosition },
+      timestamp: Date.now()
+    });
+    
+    return this;
+  }
+  
+  /**
    * Resume from pause
    */
   _resumeFromPause() {
@@ -393,6 +420,39 @@ class PianoRollCore {
   }
   
   /**
+   * Отправляет события всем подписчикам транспорта
+   * @param {Object} event - Объект события
+   */
+  _notifyTransportSubscribers(event) {
+    this.transportSubscribers.forEach(callback => {
+      try {
+        callback(event);
+      } catch (error) {
+        console.error('Error in transport subscriber:', error);
+      }
+    });
+  }
+  
+  /**
+   * Подписывает внешний обработчик на события транспорта
+   * @param {Function} callback - Функция, вызываемая при событиях транспорта
+   * @returns {Function} Функция для отмены подписки
+   */
+  subscribeToTransport(callback) {
+    if (typeof callback === 'function' && !this.transportSubscribers.includes(callback)) {
+      this.transportSubscribers.push(callback);
+    }
+    
+    // Возвращаем функцию для отмены подписки
+    return () => {
+      const index = this.transportSubscribers.indexOf(callback);
+      if (index > -1) {
+        this.transportSubscribers.splice(index, 1);
+      }
+    };
+  }
+  
+  /**
    * Изменяет строй и перерасчитывает частоты для всех нот
    * @param {string} tuningSystem - Строй ('equal', 'natural', 'pythagorean', 'pentatonic')
    */
@@ -464,12 +524,171 @@ class PianoRollCore {
   }
   
   /**
+   * Возвращает JSON строку с данными нот
+   * @returns {string} JSON представление нот
+   */
+  toJSON() {
+    return JSON.stringify(this.getNotes(), null, 2);
+  }
+  
+  /**
    * Очищает все ноты
    */
   clear() {
     this.stop();
     this.notes = [];
     return this;
+  }
+  
+  /**
+   * Устанавливает BPM (темп)
+   * @param {number} bpm - Темп в ударах в минуту (20-300)
+   */
+  setBPM(bpm) {
+    if (typeof bpm !== 'number' || bpm < 20 || bpm > 300) {
+      console.warn(`Invalid BPM value: ${bpm}. Must be between 20 and 300.`);
+      return this;
+    }
+    
+    this.transportState.bpm = bpm;
+    
+    if (Tone) {
+      Tone.Transport.bpm.value = bpm;
+      console.log(`BPM set to ${bpm}`);
+    }
+    
+    this._notifyTransportSubscribers({
+      type: 'bpm',
+      data: { bpm: bpm },
+      timestamp: Date.now()
+    });
+    
+    return this;
+  }
+  
+  /**
+   * Устанавливает позицию воспроизведения
+   * @param {string|number} position - Позиция в формате Tone.js или секундах
+   */
+  setPosition(position) {
+    if (typeof position === 'number') {
+      this.currentPosition = Math.max(0, Math.min(position, this.duration));
+      this.transportState.positionSeconds = this.currentPosition;
+      // Convert seconds to bars:beats:sixteenths format
+      const bars = Math.floor(this.currentPosition / (240 / this.transportState.bpm));
+      const beats = 0;
+      const sixteenths = 0;
+      this.transportState.position = `${bars}:${beats}:${sixteenths}`;
+    } else if (typeof position === 'string') {
+      this.transportState.position = position;
+      // Convert to seconds (approximate)
+      const parts = position.split(':');
+      const bars = parseInt(parts[0]) || 0;
+      this.currentPosition = bars * (240 / this.transportState.bpm);
+      this.transportState.positionSeconds = this.currentPosition;
+    }
+    
+    if (Tone) {
+      Tone.Transport.position = this.transportState.position;
+    }
+    
+    this._notifyTransportSubscribers({
+      type: 'position',
+      data: { 
+        position: this.transportState.position,
+        positionSeconds: this.transportState.positionSeconds
+      },
+      timestamp: Date.now()
+    });
+    
+    return this;
+  }
+  
+  /**
+   * Устанавливает настройки петли
+   * @param {boolean} enabled - Включить петлю
+   * @param {string} start - Начальная позиция петли (опционально)
+   * @param {string} end - Конечная позиция петли (опционально)
+   */
+  setLoop(enabled, start, end) {
+    this.transportState.isLooping = !!enabled;
+    
+    if (start) {
+      this.transportState.loopStart = start;
+    }
+    if (end) {
+      this.transportState.loopEnd = end;
+    }
+    
+    if (Tone) {
+      Tone.Transport.loop = this.transportState.isLooping;
+      if (this.transportState.isLooping) {
+        Tone.Transport.loopStart = this.transportState.loopStart;
+        Tone.Transport.loopEnd = this.transportState.loopEnd;
+      }
+    }
+    
+    console.log(`Loop ${enabled ? 'enabled' : 'disabled'}`, {
+      start: this.transportState.loopStart,
+      end: this.transportState.loopEnd
+    });
+    
+    this._notifyTransportSubscribers({
+      type: 'loop',
+      data: { 
+        enabled: this.transportState.isLooping,
+        start: this.transportState.loopStart,
+        end: this.transportState.loopEnd
+      },
+      timestamp: Date.now()
+    });
+    
+    return this;
+  }
+  
+  /**
+   * Устанавливает swing (качание ритма)
+   * @param {number} amount - Количество swing (0-1)
+   * @param {string} subdivision - Деление для swing ('8n', '16n' и т.д.)
+   */
+  setSwing(amount, subdivision = '8n') {
+    if (typeof amount !== 'number' || amount < 0 || amount > 1) {
+      console.warn(`Invalid swing amount: ${amount}. Must be between 0 and 1.`);
+      return this;
+    }
+    
+    this.transportState.swing = amount;
+    this.transportState.swingSubdivision = subdivision;
+    
+    if (Tone) {
+      Tone.Transport.swing = amount;
+      Tone.Transport.swingSubdivision = subdivision;
+    }
+    
+    console.log(`Swing set to ${amount} with subdivision ${subdivision}`);
+    
+    this._notifyTransportSubscribers({
+      type: 'swing',
+      data: { 
+        amount: amount,
+        subdivision: subdivision
+      },
+      timestamp: Date.now()
+    });
+    
+    return this;
+  }
+  
+  /**
+   * Возвращает текущее состояние транспорта
+   * @returns {Object} Объект с состоянием транспорта
+   */
+  getTransportState() {
+    return {
+      ...this.transportState,
+      positionSeconds: this.currentPosition,
+      duration: this.duration
+    };
   }
   
   /**
@@ -495,3 +714,4 @@ class PianoRollCore {
 }
 
 // PianoRollCore доступен как глобальный класс
+window.PianoRollCore = PianoRollCore;
